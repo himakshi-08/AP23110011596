@@ -1,6 +1,6 @@
 import express from "express";
 import axios from "axios";
-import { log } from "./logger";
+import { log } from "../../logging_middleware/logger";
 
 const app = express();
 app.use(express.json());
