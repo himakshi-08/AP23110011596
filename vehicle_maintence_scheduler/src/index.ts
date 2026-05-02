@@ -1,8 +1,11 @@
+import express from "express";
 import axios from "axios";
 import { log } from "./logger";
 
+const app = express();
+app.use(express.json());
+
 const BASE_URL = "http://20.207.122.201/evaluation-service";
-const TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJNYXBDbGFpbXMiOnsiYXVkIjoiaHR0cDovLzIwLjI0NC41Ni4xNDQvZXZhbHVhdGlvbi1zZXJ2aWNlIiwiZW1haWwiOiJoaW1ha3NoaV9jaGFkYWxhdmFkYUBzcm1hcC5lZHUuaW4iLCJleHAiOjE3Nzc3MDMyNjYsImlhdCI6MTc3NzcwMjM2NiwiaXNzIjoiQWZmb3JkIE1lZGljYWwgVGVjaG5vbG9naWVzIFByaXZhdGUgTGltaXRlZCIsImp0aSI6IjY3NzBlNmM5LTdjNTEtNDk4Yy04YWMxLWNhZmNkM2ZiM2NiNSIsImxvY2FsZSI6ImVuLUlOIiwibmFtZSI6ImhpbWFrc2hpIGNoYWRhbGF2YWRhIiwic3ViIjoiZTliODMyN2ItYTljMS00NDdjLWI3ZTMtYzQ2OTY2Y2M1NzY1In0sImVtYWlsIjoiaGltYWtzaGlfY2hhZGFsYXZhZGFAc3JtYXAuZWR1LmluIiwibmFtZSI6ImhpbWFrc2hpIGNoYWRhbGF2YWRhIiwicm9sbE5vIjoiYXAyMzExMDAxMTU5NiIsImFjY2Vzc0NvZGUiOiJRa2JweEgiLCJjbGllbnRJRCI6ImU5YjgzMjdiLWE5YzEtNDQ3Yy1iN2UzLWM0Njk2NmNjNTc2NSIsImNsaWVudFNlY3JldCI6IkdReXJKdHN3ZFBYbWRHRW0ifQ.HbAQocCPXw1NH8oa4FjIGLlsw3IrGWaWmUBCwPhw0x4";
 
 interface Depot {
   ID: number;
@@ -15,21 +18,21 @@ interface Vehicle {
   Impact: number;
 }
 
-async function fetchDepots(): Promise<Depot[]> {
-  await log("backend", "info", "service", "Fetching depots from API", TOKEN);
+async function fetchDepots(token: string): Promise<Depot[]> {
+  await log("backend", "info", "service", "Fetching depots from API", token);
   const res = await axios.get<{ depots: Depot[] }>(`${BASE_URL}/depots`, {
-    headers: { Authorization: `Bearer ${TOKEN}` },
+    headers: { Authorization: `Bearer ${token}` },
   });
-  await log("backend", "info", "service", `Fetched ${res.data.depots.length} depots`, TOKEN);
+  await log("backend", "info", "service", `Fetched ${res.data.depots.length} depots`, token);
   return res.data.depots;
 }
 
-async function fetchVehicles(): Promise<Vehicle[]> {
-  await log("backend", "info", "service", "Fetching vehicles from API", TOKEN);
+async function fetchVehicles(token: string): Promise<Vehicle[]> {
+  await log("backend", "info", "service", "Fetching vehicles from API", token);
   const res = await axios.get<{ vehicles: Vehicle[] }>(`${BASE_URL}/vehicles`, {
-    headers: { Authorization: `Bearer ${TOKEN}` },
+    headers: { Authorization: `Bearer ${token}` },
   });
-  await log("backend", "info", "service", `Fetched ${res.data.vehicles.length} vehicles`, TOKEN);
+  await log("backend", "info", "service", `Fetched ${res.data.vehicles.length} vehicles`, token);
   return res.data.vehicles;
 }
 
@@ -61,48 +64,55 @@ function knapsack(capacity: number, tasks: Vehicle[]): { bestScore: number; sele
   return { bestScore: dp[n][capacity], selected };
 }
 
-async function main(): Promise<void> {
-  await log("backend", "info", "handler", "Vehicle Maintenance Scheduler started", TOKEN);
+app.post("/api/schedule", async (req, res) => {
+  const token = req.body.token;
+  if (!token) {
+    return res.status(400).json({ error: "Token is required in request body" });
+  }
 
-  let depots: Depot[];
-  let vehicles: Vehicle[];
+  await log("backend", "info", "handler", "Vehicle Maintenance Scheduler API started", token);
 
   try {
-    depots = await fetchDepots();
-    vehicles = await fetchVehicles();
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    await log("backend", "error", "handler", `Failed to fetch data: ${msg}`, TOKEN);
-    throw err;
-  }
+    const depots = await fetchDepots(token);
+    const vehicles = await fetchVehicles(token);
 
-  for (const depot of depots) {
-    await log("backend", "info", "service", `Processing depot ${depot.ID} with budget ${depot.MechanicHours} hrs`, TOKEN);
+    const results = [];
 
-    const { bestScore, selected } = knapsack(depot.MechanicHours, vehicles);
-    const hoursUsed = selected.reduce((sum, t) => sum + t.Duration, 0);
+    for (const depot of depots) {
+      await log("backend", "info", "service", `Processing depot ${depot.ID} with budget ${depot.MechanicHours} hrs`, token);
 
-    await log("backend", "info", "service",
-      `Depot ${depot.ID} → selected ${selected.length} tasks, ${hoursUsed}/${depot.MechanicHours} hrs, impact=${bestScore}`, TOKEN);
+      const { bestScore, selected } = knapsack(depot.MechanicHours, vehicles);
+      const hoursUsed = selected.reduce((sum, t) => sum + t.Duration, 0);
 
-    process.stdout.write(`\n========================================\n`);
-    process.stdout.write(`Depot ${depot.ID}  |  Budget: ${depot.MechanicHours} hrs\n`);
-    process.stdout.write(`  Tasks selected : ${selected.length}\n`);
-    process.stdout.write(`  Hours used     : ${hoursUsed} / ${depot.MechanicHours}\n`);
-    process.stdout.write(`  Total impact   : ${bestScore}\n`);
-    process.stdout.write(`----------------------------------------\n`);
-    for (const t of selected) {
-      process.stdout.write(`  • TaskID: ${t.TaskID}\n    Duration: ${t.Duration} hrs  |  Impact: ${t.Impact}\n`);
+      await log("backend", "info", "service",
+        `Depot ${depot.ID} → selected ${selected.length} tasks, ${hoursUsed}/${depot.MechanicHours} hrs, impact=${bestScore}`, token);
+
+      results.push({
+        depotID: depot.ID,
+        budget: depot.MechanicHours,
+        tasksSelectedCount: selected.length,
+        hoursUsed,
+        totalImpact: bestScore,
+        selectedTasks: selected
+      });
     }
+
+    await log("backend", "info", "handler", "Vehicle Maintenance Scheduler API completed successfully", token);
+    
+    res.json({
+      status: "success",
+      message: "Vehicle Maintenance Scheduling Complete",
+      results
+    });
+
+  } catch (err: any) {
+    const msg = err instanceof Error ? err.message : String(err);
+    await log("backend", "error", "handler", `Failed API request: ${msg}`, token);
+    res.status(500).json({ error: msg });
   }
+});
 
-  process.stdout.write(`\n========================================\n`);
-  process.stdout.write(`Vehicle Maintenance Scheduling Complete!\n`);
-  await log("backend", "info", "handler", "Vehicle Maintenance Scheduler completed successfully", TOKEN);
-}
-
-main().catch(async (err: unknown) => {
-  const msg = err instanceof Error ? err.message : String(err);
-  await log("backend", "fatal", "handler", `Unhandled error: ${msg}`, TOKEN);
-  process.exit(1);
+const PORT = 3000;
+app.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
 });

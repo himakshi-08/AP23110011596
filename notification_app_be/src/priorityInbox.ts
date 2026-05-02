@@ -1,8 +1,11 @@
+import express from "express";
 import axios from "axios";
 import { log } from "./logger";
 
+const app = express();
+app.use(express.json());
+
 const BASE_URL = "http://20.207.122.201/evaluation-service";
-const TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJNYXBDbGFpbXMiOnsiYXVkIjoiaHR0cDovLzIwLjI0NC41Ni4xNDQvZXZhbHVhdGlvbi1zZXJ2aWNlIiwiZW1haWwiOiJoaW1ha3NoaV9jaGFkYWxhdmFkYUBzcm1hcC5lZHUuaW4iLCJleHAiOjE3Nzc3MDMyNjYsImlhdCI6MTc3NzcwMjM2NiwiaXNzIjoiQWZmb3JkIE1lZGljYWwgVGVjaG5vbG9naWVzIFByaXZhdGUgTGltaXRlZCIsImp0aSI6IjY3NzBlNmM5LTdjNTEtNDk4Yy04YWMxLWNhZmNkM2ZiM2NiNSIsImxvY2FsZSI6ImVuLUlOIiwibmFtZSI6ImhpbWFrc2hpIGNoYWRhbGF2YWRhIiwic3ViIjoiZTliODMyN2ItYTljMS00NDdjLWI3ZTMtYzQ2OTY2Y2M1NzY1In0sImVtYWlsIjoiaGltYWtzaGlfY2hhZGFsYXZhZGFAc3JtYXAuZWR1LmluIiwibmFtZSI6ImhpbWFrc2hpIGNoYWRhbGF2YWRhIiwicm9sbE5vIjoiYXAyMzExMDAxMTU5NiIsImFjY2Vzc0NvZGUiOiJRa2JweEgiLCJjbGllbnRJRCI6ImU5YjgzMjdiLWE5YzEtNDQ3Yy1iN2UzLWM0Njk2NmNjNTc2NSIsImNsaWVudFNlY3JldCI6IkdReXJKdHN3ZFBYbWRHRW0ifQ.HbAQocCPXw1NH8oa4FjIGLlsw3IrGWaWmUBCwPhw0x4";
 const TOP_N = 10;
 
 interface Notification {
@@ -56,16 +59,18 @@ function heapPop(heap: HeapItem[]): HeapItem {
   return top;
 }
 
-async function getTopNNotifications(n: number): Promise<Notification[]> {
-  await log("backend", "info", "service", `Fetching notifications for top-${n} priority inbox`, TOKEN);
+async function getTopNNotifications(token: string, n: number): Promise<Notification[]> {
+  console.log("Fetching notifications...");
+  await log("backend", "info", "service", `Fetching notifications for top-${n} priority inbox`, token);
 
   const res = await axios.get<{ notifications: Notification[] }>(
     `${BASE_URL}/notifications`,
-    { headers: { Authorization: `Bearer ${TOKEN}` } }
+    { headers: { Authorization: `Bearer ${token}` } }
   );
 
   const all = res.data.notifications;
-  await log("backend", "info", "service", `Total notifications fetched: ${all.length}`, TOKEN);
+  console.log(`Fetched ${all.length} notifications. Building heap...`);
+  await log("backend", "info", "service", `Total notifications fetched: ${all.length}`, token);
 
   const heap: HeapItem[] = [];
   for (const notif of all) {
@@ -76,43 +81,44 @@ async function getTopNNotifications(n: number): Promise<Notification[]> {
     }
   }
 
+  console.log("Heap built. Sorting...");
   const result = heap
     .sort((a, b) => b.score - a.score)
     .map((h) => h.notif);
 
-  await log("backend", "info", "service", `Top-${n} notifications selected`, TOKEN);
+  await log("backend", "info", "service", `Top-${n} notifications selected`, token);
   return result;
 }
 
-async function main(): Promise<void> {
-  await log("backend", "info", "handler", "Priority Inbox service started", TOKEN);
-
-  let topNotifs: Notification[];
-  try {
-    topNotifs = await getTopNNotifications(TOP_N);
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    await log("backend", "error", "handler", `Failed to fetch notifications: ${msg}`, TOKEN);
-    throw err;
+app.post("/api/priority-inbox", async (req, res) => {
+  console.log("Received POST /api/priority-inbox request");
+  const token = req.body.token;
+  if (!token) {
+    return res.status(400).json({ error: "Token is required in request body" });
   }
 
-  process.stdout.write(`\n==========================================\n`);
-  process.stdout.write(`   Top ${TOP_N} Priority Notifications\n`);
-  process.stdout.write(`==========================================\n`);
+  await log("backend", "info", "handler", "Priority Inbox API started", token);
 
-  topNotifs.forEach((n, idx) => {
-    process.stdout.write(
-      `\n${idx + 1}. [${n.Type}]\n   Message  : ${n.Message}\n   Timestamp: ${n.Timestamp}\n   ID       : ${n.ID}\n`
-    );
-  });
+  try {
+    const topNotifs = await getTopNNotifications(token, TOP_N);
+    await log("backend", "info", "handler", "Priority Inbox API completed", token);
+    
+    console.log("Successfully fetched notifications. Sending response...");
+    res.json({
+      status: "success",
+      message: `Top ${TOP_N} Priority Notifications`,
+      notifications: topNotifs
+    });
 
-  process.stdout.write(`\n==========================================\n`);
-  process.stdout.write(`Priority Inbox Complete!\n`);
-  await log("backend", "info", "handler", "Priority Inbox service completed", TOKEN);
-}
+  } catch (err: any) {
+    console.error("Error occurred:", err);
+    const msg = err instanceof Error ? err.message : String(err);
+    await log("backend", "error", "handler", `Failed to fetch notifications: ${msg}`, token);
+    res.status(500).json({ error: msg });
+  }
+});
 
-main().catch(async (err: unknown) => {
-  const msg = err instanceof Error ? err.message : String(err);
-  await log("backend", "fatal", "handler", `Unhandled error: ${msg}`, TOKEN);
-  process.exit(1);
+const PORT = 3000;
+app.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
 });
