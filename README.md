@@ -1,7 +1,6 @@
 # Campus Microservices
 
-This repository contains two backend microservices developed for the campus evaluation assignment. Both applications have been built as **REST APIs** using **Node.js, TypeScript, and Express.js** (No Python was used in this implementation).
-
+This repository contains two backend microservices developed for the campus evaluation assignment. Both applications have been built as **REST APIs** using **Node.js, TypeScript, and Express.js** 
 ## 1. Vehicle Maintenance Scheduler (`vehicle_maintence_scheduler`)
 This service uses a custom **0/1 Knapsack Algorithm** (Dynamic Programming) to schedule vehicle maintenance tasks based on impact and available mechanic hours.
 
