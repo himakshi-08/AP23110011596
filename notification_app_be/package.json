@@ -1,0 +1,17 @@
+{
+  "name": "notifications_app",
+  "version": "1.0.0",
+  "description": "Campus Notifications Microservice - Priority Inbox",
+  "main": "src/priorityInbox.ts",
+  "scripts": {
+    "start": "npx ts-node src/priorityInbox.ts"
+  },
+  "dependencies": {
+    "axios": "^1.15.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.39"
+  }
+}
